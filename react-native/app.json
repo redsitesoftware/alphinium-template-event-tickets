@@ -1,0 +1,14 @@
+{
+  "expo": {
+    "name": "Event Tickets",
+    "slug": "event-tickets",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "backgroundColor": "#0F0F1A",
+    "primaryColor": "#6366F1",
+    "platforms": ["ios","android","web"],
+    "web": { "bundler": "metro", "output": "single" },
+    "android": { "package": "com.redsitesoftware.eventTickets" },
+    "ios": { "bundleIdentifier": "com.redsitesoftware.eventTickets" }
+  }
+}
