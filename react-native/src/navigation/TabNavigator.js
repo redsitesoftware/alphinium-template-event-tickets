@@ -9,6 +9,7 @@ import { colors, typography, spacing } from '../theme';
 import DashboardScreen from '../screens/DashboardScreen';
 import AlphiniumAddonsScreen from '../screens/AlphiniumAddonsScreen';
 import AccountScreen from '../screens/AccountScreen';
+import OrganiserDashboardScreen from '../screens/OrganiserDashboardScreen';
 
 // Stack-only screens
 import HomeScreen from '../screens/HomeScreen';
@@ -21,15 +22,17 @@ import SubscriptionManagementScreen from '../screens/SubscriptionManagementScree
 const Stack = createStackNavigator();
 
 const USER_TABS = [
-  { id: 'Dashboard', emoji: '⚡', label: 'Home',    Screen: DashboardScreen },
-  { id: 'Account',   emoji: '👤', label: 'Account', Screen: AccountScreen },
+  { id: 'Dashboard', emoji: '⚡', label: 'Home',      Screen: DashboardScreen },
+  { id: 'Account',   emoji: '👤', label: 'Account',   Screen: AccountScreen },
 ];
 
 const ADMIN_TABS = [
-  { id: 'Dashboard', emoji: '⚡', label: 'Home',    Screen: DashboardScreen },
-  { id: 'Addons',    emoji: '🧩', label: 'Add-ons', Screen: AlphiniumAddonsScreen },
-  { id: 'Account',   emoji: '👤', label: 'Account', Screen: AccountScreen },
+  { id: 'Dashboard', emoji: '⚡', label: 'Home',      Screen: DashboardScreen },
+  { id: 'Addons',    emoji: '🧩', label: 'Add-ons',   Screen: AlphiniumAddonsScreen },
+  { id: 'Account',   emoji: '👤', label: 'Account',   Screen: AccountScreen },
 ];
+
+const ORGANISER_TAB = { id: 'Organiser', emoji: '🎟️', label: 'Organiser', Screen: OrganiserDashboardScreen };
 
 // Custom persistent bottom tab bar — no react-native-screens dependency
 function TabBar({ active, onSelect, tabs }) {
@@ -60,7 +63,18 @@ function TabBar({ active, onSelect, tabs }) {
 // Main tab view — renders the active tab screen inline
 function MainTabs({ navigation }) {
   const { user } = useAuth();
-  const TABS = isProjectAdmin(user) ? ADMIN_TABS : USER_TABS;
+  const isAdmin = isProjectAdmin(user);
+  const isOrganiser = isAdmin || user?.role === 'organiser';
+
+  let TABS = isAdmin ? ADMIN_TABS : USER_TABS;
+  if (isOrganiser) {
+    // Insert Organiser tab before Account
+    TABS = [
+      ...TABS.filter((t) => t.id !== 'Account'),
+      ORGANISER_TAB,
+      ...TABS.filter((t) => t.id === 'Account'),
+    ];
+  }
   const [activeTab, setActiveTab] = useState('Dashboard');
   const activeTabDef = TABS.find((t) => t.id === activeTab) || TABS[0];
   const ActiveScreen = activeTabDef.Screen;
