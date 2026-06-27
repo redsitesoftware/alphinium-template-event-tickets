@@ -12,6 +12,7 @@
  */
 
 import { STRAPI_URL } from '../config';
+import { EVENTS as MOCK_EVENTS } from '../store/ticketStore';
 
 /**
  * Build Strapi v4 filter query string from params object.
@@ -64,6 +65,22 @@ export const EventsService = {
    * @returns {Promise<{ data: Array, meta: object }>}
    */
   async getEvents(params = {}, token) {
+    // No Strapi configured — return filtered mock data for demo/preview
+    if (!STRAPI_URL) {
+      let events = MOCK_EVENTS;
+      if (params.category && params.category !== 'All') {
+        events = events.filter(e => e.category === params.category);
+      }
+      if (params.search) {
+        const q = params.search.toLowerCase();
+        events = events.filter(e =>
+          e.name.toLowerCase().includes(q) ||
+          (e.description || '').toLowerCase().includes(q),
+        );
+      }
+      return { data: events, meta: { pagination: { total: events.length } } };
+    }
+
     try {
       const headers = {};
       if (token) {
@@ -94,6 +111,11 @@ export const EventsService = {
    * @returns {Promise<object>}  Strapi v4: { id, attributes: { name, ... } }
    */
   async getEventById(id, token) {
+    // No Strapi configured — return mock event for demo/preview
+    if (!STRAPI_URL) {
+      return MOCK_EVENTS.find(e => e.id === id) ?? null;
+    }
+
     try {
       const headers = {};
       if (token) {
