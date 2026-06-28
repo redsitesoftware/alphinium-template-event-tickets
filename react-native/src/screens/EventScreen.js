@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, SafeAreaView, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, SafeAreaView, ActivityIndicator, Alert } from 'react-native';
 import { useStore } from '../store/ticketStore';
 import { EventsService } from '../services/EventsService';
+import { WaitlistService } from '../services/WaitlistService';
 
 // Normalise Strapi v4 { id, attributes: {...} } or flat object
 function normaliseEvent(raw) {
@@ -18,6 +19,9 @@ export default function EventScreen() {
   const [event, setEvent] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  // Map of ticketTypeId → waitlist position (set after joining)
+  const [waitlistPositions, setWaitlistPositions] = useState({});
+  const [joiningWaitlist, setJoiningWaitlist] = useState(false);
 
   useEffect(() => {
     if (!eventId) return;
@@ -90,6 +94,51 @@ export default function EventScreen() {
   const tickets = event.tickets ?? [];
   const accent = event.accent ?? '#818CF8';
 
+  function isSoldOut(ticketAttrs) {
+    const avail = ticketAttrs.availableCount ?? ticketAttrs.available ?? null;
+    return avail !== null && avail <= 0;
+  }
+
+  function promptAndJoinWaitlist(ticketTypeId) {
+    // Pre-fill email from store if available
+    const knownEmail = state.buyerEmail ?? '';
+    let inputEmail = knownEmail;
+
+    Alert.prompt(
+      'Join Waitlist',
+      'Enter your email to be notified when a ticket becomes available.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Join',
+          onPress: async (email) => {
+            const trimmed = (email ?? '').trim();
+            if (!trimmed) {
+              Alert.alert('Email required', 'Please enter a valid email address.');
+              return;
+            }
+            setJoiningWaitlist(true);
+            try {
+              const result = await WaitlistService.joinWaitlist(event.id, ticketTypeId, trimmed);
+              setWaitlistPositions(prev => ({ ...prev, [ticketTypeId]: result.position }));
+              Alert.alert(
+                'You\'re on the waitlist!',
+                result.message || `You are #${result.position} on the waitlist. We'll email you if a ticket becomes available.`,
+              );
+            } catch (err) {
+              Alert.alert('Error', err.message || 'Could not join waitlist. Please try again.');
+            } finally {
+              setJoiningWaitlist(false);
+            }
+          },
+        },
+      ],
+      'plain-text',
+      inputEmail,
+      'email-address',
+    );
+  }
+
   return (
     <SafeAreaView style={[s.root, { backgroundColor: '#0F0F1A' }]}>
       <View style={s.header}>
@@ -154,25 +203,37 @@ export default function EventScreen() {
                 const t = ticket.attributes ?? ticket;
                 const tType = t.type ?? ticket.id;
                 const selected = state.selectedTicket === tType;
+                const soldOut = isSoldOut(t);
                 return (
                   <TouchableOpacity
                     key={tType}
-                    style={[s.ticketOption, selected && { borderColor: accent, backgroundColor: (event.color ?? '#6366F1') + '20' }]}
-                    onPress={() => dispatch({ type: 'SELECT_TICKET', ticketType: tType })}
+                    style={[
+                      s.ticketOption,
+                      selected && !soldOut && { borderColor: accent, backgroundColor: (event.color ?? '#6366F1') + '20' },
+                      soldOut && s.ticketOptionSoldOut,
+                    ]}
+                    onPress={() => !soldOut && dispatch({ type: 'SELECT_TICKET', ticketType: tType })}
+                    activeOpacity={soldOut ? 1 : 0.7}
                   >
                     <View style={s.ticketLeft}>
-                      <Text style={s.ticketLabel}>{t.label ?? t.name ?? tType}</Text>
-                      {t.available != null && (
+                      <Text style={[s.ticketLabel, soldOut && s.ticketLabelSoldOut]}>
+                        {t.label ?? t.name ?? tType}
+                      </Text>
+                      {soldOut ? (
+                        <Text style={s.soldOutTag}>Sold Out</Text>
+                      ) : t.available != null ? (
                         <Text style={s.ticketAvail}>{t.available} available</Text>
-                      )}
+                      ) : null}
                     </View>
                     <View style={s.ticketRight}>
                       {t.price != null && (
-                        <Text style={[s.ticketPrice, { color: accent }]}>${t.price}</Text>
+                        <Text style={[s.ticketPrice, { color: soldOut ? '#6B7280' : accent }]}>${t.price}</Text>
                       )}
-                      <View style={[s.radioOuter, selected && { borderColor: accent }]}>
-                        {selected && <View style={[s.radioInner, { backgroundColor: accent }]} />}
-                      </View>
+                      {!soldOut && (
+                        <View style={[s.radioOuter, selected && { borderColor: accent }]}>
+                          {selected && <View style={[s.radioInner, { backgroundColor: accent }]} />}
+                        </View>
+                      )}
                     </View>
                   </TouchableOpacity>
                 );
@@ -199,11 +260,42 @@ export default function EventScreen() {
 
       {/* Sticky CTA */}
       {state.selectedTicket && (() => {
-        const t = tickets.find(tk => (tk.type ?? tk.id) === state.selectedTicket);
+        const t = tickets.find(tk => (tk.attributes?.type ?? tk.type ?? tk.id) === state.selectedTicket);
         const attrs = t?.attributes ?? t ?? {};
         const price = attrs.price ?? 0;
         const total = price * state.qty;
         const hasSeatMap = event.hasSeatMap ?? false;
+        const soldOut = isSoldOut(attrs);
+        const waitlistPos = waitlistPositions[state.selectedTicket];
+
+        if (soldOut) {
+          return (
+            <View style={s.stickyBar}>
+              <View style={{ flex: 1 }}>
+                <Text style={s.totalLabel}>{attrs.label ?? attrs.name ?? state.selectedTicket}</Text>
+                {waitlistPos != null ? (
+                  <Text style={s.waitlistPosText}>📋 You are #{waitlistPos} on the waitlist</Text>
+                ) : (
+                  <Text style={s.soldOutLabel}>Sold Out</Text>
+                )}
+              </View>
+              {waitlistPos == null && (
+                <TouchableOpacity
+                  style={[s.buyBtn, s.waitlistBtn, joiningWaitlist && { opacity: 0.6 }]}
+                  onPress={() => !joiningWaitlist && promptAndJoinWaitlist(state.selectedTicket)}
+                  disabled={joiningWaitlist}
+                >
+                  {joiningWaitlist ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <Text style={s.buyBtnText}>📋 Join Waitlist</Text>
+                  )}
+                </TouchableOpacity>
+              )}
+            </View>
+          );
+        }
+
         return (
           <View style={s.stickyBar}>
             <View>
@@ -269,4 +361,10 @@ const s = StyleSheet.create({
   totalPrice: { fontSize: 22, fontWeight: '900' },
   buyBtn: { borderRadius: 12, paddingHorizontal: 24, paddingVertical: 14 },
   buyBtnText: { color: '#fff', fontSize: 16, fontWeight: '800' },
+  waitlistBtn: { backgroundColor: '#7C3AED' },
+  ticketOptionSoldOut: { opacity: 0.55, borderColor: '#374151' },
+  ticketLabelSoldOut: { color: '#6B7280' },
+  soldOutTag: { fontSize: 12, color: '#EF4444', fontWeight: '700', marginTop: 4 },
+  soldOutLabel: { fontSize: 14, color: '#EF4444', fontWeight: '700', marginTop: 2 },
+  waitlistPosText: { fontSize: 14, color: '#A78BFA', fontWeight: '700', marginTop: 2 },
 });
