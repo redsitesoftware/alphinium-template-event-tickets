@@ -39,6 +39,13 @@ function mockGetEvents() {
   ];
 }
 
+function mockGetAttendees(_id, params = {}) {
+  if (params.checkedIn === true || params.checkedIn === 'true') {
+    return { data: [], meta: { total: 3, checkedIn: 3 } };
+  }
+  return { data: [], meta: { total: 12, checkedIn: 3 } };
+}
+
 export const OrganiserService = {
   /**
    * List events owned by the authenticated organiser.
@@ -101,5 +108,25 @@ export const OrganiserService = {
       const text = await response.text().catch(() => '');
       throw new Error(`HTTP ${response.status}: ${text || response.statusText}`);
     }
+  },
+
+  /**
+   * Fetch attendee list (or checked-in subset) for an event.
+   * @param {string|number} id
+   * @param {{ checkedIn?: boolean }} params  Pass { checkedIn: true } for check-in count only
+   * @param {string} token
+   * @returns {Promise<{ data: Array, meta: { total: number, checkedIn: number } }>}
+   */
+  async getAttendees(id, params = {}, token) {
+    if (!STRAPI_URL) return mockGetAttendees(id, params);
+
+    const query = params.checkedIn != null
+      ? `?checkedIn=${encodeURIComponent(params.checkedIn)}`
+      : '';
+    const response = await fetch(
+      `${STRAPI_URL}/api/organiser/events/${encodeURIComponent(id)}/attendees${query}`,
+      { headers: authHeaders(token) },
+    );
+    return handleResponse(response);
   },
 };

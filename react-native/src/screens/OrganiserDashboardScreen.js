@@ -15,6 +15,7 @@ import {
   Alert,
   RefreshControl,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '@alphinium/auth';
 import { OrganiserService } from '../services/OrganiserService';
 import OrganiserEventFormScreen from './OrganiserEventFormScreen';
@@ -27,6 +28,35 @@ export default function OrganiserDashboardScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const [editingEvent, setEditingEvent] = useState(undefined); // undefined = dashboard, null = create, object = edit
+  // Map of eventId → { checkedIn: number, total: number }
+  const [checkInCounts, setCheckInCounts] = useState({});
+
+  const fetchCheckInCounts = useCallback(async (eventList) => {
+    if (!eventList || eventList.length === 0) return;
+    const results = await Promise.allSettled(
+      eventList.map(async (evt) => {
+        const id = evt.id ?? evt._id;
+        const [checkedInRes, totalRes] = await Promise.allSettled([
+          OrganiserService.getAttendees(id, { checkedIn: true }, token),
+          OrganiserService.getAttendees(id, {}, token),
+        ]);
+        const checkedIn = checkedInRes.status === 'fulfilled'
+          ? (checkedInRes.value?.meta?.checkedIn ?? checkedInRes.value?.meta?.total ?? 0)
+          : 0;
+        const total = totalRes.status === 'fulfilled'
+          ? (totalRes.value?.meta?.total ?? 0)
+          : 0;
+        return { id, checkedIn, total };
+      }),
+    );
+    const counts = {};
+    results.forEach((r) => {
+      if (r.status === 'fulfilled') {
+        counts[r.value.id] = { checkedIn: r.value.checkedIn, total: r.value.total };
+      }
+    });
+    setCheckInCounts(counts);
+  }, [token]);
 
   const fetchEvents = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -34,19 +64,33 @@ export default function OrganiserDashboardScreen() {
     try {
       const data = await OrganiserService.getEvents(token);
       // Support both Strapi v4 { data: [...] } and plain array responses
-      setEvents(Array.isArray(data) ? data : (data?.data ?? []));
+      const list = Array.isArray(data) ? data : (data?.data ?? []);
+      setEvents(list);
+      fetchCheckInCounts(list);
     } catch (err) {
       setError(err.message || 'Failed to load events');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [token]);
+  }, [token, fetchCheckInCounts]);
 
   // Load on first mount
   React.useEffect(() => {
     fetchEvents();
   }, [fetchEvents]);
+
+  // Auto-refresh check-in counts every 30 seconds while focused
+  useFocusEffect(
+    useCallback(() => {
+      const interval = setInterval(() => {
+        if (events.length > 0) {
+          fetchCheckInCounts(events);
+        }
+      }, 30_000);
+      return () => clearInterval(interval);
+    }, [events, fetchCheckInCounts]),
+  );
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -180,6 +224,19 @@ export default function OrganiserDashboardScreen() {
                     <Text style={s.ticketCount}>
                       {sold.toLocaleString()} / {capacity.toLocaleString()} tickets sold
                     </Text>
+
+                    {/* Check-in count */}
+                    {(() => {
+                      const ci = checkInCounts[id];
+                      return ci != null ? (
+                        <View style={s.checkInRow}>
+                          <Text style={s.checkInIcon}>✅</Text>
+                          <Text style={s.checkInText}>
+                            {ci.checkedIn} / {ci.total} checked in
+                          </Text>
+                        </View>
+                      ) : null;
+                    })()}
                   </View>
 
                   <View style={s.cardFooter}>
@@ -349,6 +406,20 @@ const s = StyleSheet.create({
   ticketCount: {
     fontSize: 11,
     color: colors.textMuted,
+  },
+  checkInRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 4,
+  },
+  checkInIcon: {
+    fontSize: 11,
+  },
+  checkInText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.success,
   },
   cardFooter: {
     paddingHorizontal: spacing.md,
