@@ -14,8 +14,11 @@
 
 import { STRAPI_URL } from '../config';
 
-function authHeaders() {
-  return { 'Content-Type': 'application/json' };
+function authHeaders(token) {
+  return {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
 }
 
 async function handleResponse(res) {
@@ -86,16 +89,18 @@ export const WaitlistService = {
 
   /**
    * Get the full waitlist for an event (organiser use).
+   * Passes optional JWT so the organiser endpoint can enforce access control.
    *
    * @param {string|number} eventId
+   * @param {string}        [token]  JWT from useAuth() — required for real API calls
    * @returns {Promise<{ total: number, entries: Array<{ email: string, ticketTypeId: string, joinedAt: string }> }>}
    */
-  async getWaitlistLength(eventId) {
+  async getWaitlistLength(eventId, token) {
     if (!STRAPI_URL) return mockGetWaitlistLength(eventId);
 
     const res = await fetch(
       `${STRAPI_URL}/api/events/${encodeURIComponent(eventId)}/waitlist`,
-      { headers: authHeaders() },
+      { headers: authHeaders(token) },
     );
     return handleResponse(res);
   },
