@@ -33,6 +33,7 @@ import {
 import { useStore, EVENTS } from '../store/ticketStore';
 import { SeatMapService } from '../services/SeatMapService';
 import { CheckoutService, calcOrderAmounts } from '../services/CheckoutService';
+import { TicketService } from '../services/TicketService';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -190,6 +191,11 @@ export default function CheckoutScreen() {
         qrCode: confirmedTicket.qrCode,
         bookingId: booking.bookingId,
       });
+
+      // Fire-and-forget confirmation email — does not block navigation
+      if (confirmedTicket.qrCode) {
+        TicketService.resendEmail(confirmedTicket.qrCode).catch(() => {});
+      }
 
     } catch (err) {
       setStage(STAGE.FAILED);

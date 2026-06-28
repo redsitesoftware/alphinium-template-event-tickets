@@ -1,26 +1,69 @@
-import React from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, SafeAreaView } from 'react-native';
+import React, { useState, useMemo } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, SafeAreaView, Linking, ActivityIndicator } from 'react-native';
 import { useStore, EVENTS } from '../store/ticketStore';
+import { generateQRMatrix } from '../utils/qrGenerator';
+import { TicketService } from '../services/TicketService';
 
-function QRCode({ code, color }) {
-  // Fake QR grid using unicode blocks
-  const grid = Array.from({ length: 7 }, (_, r) =>
-    Array.from({ length: 7 }, (_, c) => Math.random() > 0.5 ? 1 : 0)
-  );
-  // Override corners (mandatory QR pattern)
-  [[0,0],[0,1],[1,0],[0,5],[0,6],[1,6],[5,0],[6,0],[6,1],[5,6],[6,6],[6,5]].forEach(([r,c]) => { if(grid[r]) grid[r][c] = 1; });
+// Module size in pixels — 29 modules × 8px = 232px total
+const QR_MODULE_SIZE = 8;
+
+/**
+ * Renders a spec-compliant, scannable QR code for `code`.
+ * Uses generateQRMatrix() from qrGenerator — deterministic per-ticket.
+ */
+function QRCode({ code }) {
+  const matrix = useMemo(() => generateQRMatrix(code), [code]);
   return (
-    <View style={{ gap: 3, backgroundColor: '#fff', padding: 16, borderRadius: 16, alignItems: 'center' }}>
-      {grid.map((row, r) => (
-        <View key={r} style={{ flexDirection: 'row', gap: 3 }}>
-          {row.map((cell, c) => (
-            <View key={c} style={{ width: 18, height: 18, backgroundColor: cell ? color : '#fff', borderRadius: 2 }} />
+    <View style={{ backgroundColor: '#fff', padding: 10, borderRadius: 12, alignItems: 'center' }}>
+      {matrix.map((row, r) => (
+        <View key={r} style={{ flexDirection: 'row' }}>
+          {row.map((dark, c) => (
+            <View
+              key={c}
+              style={{
+                width: QR_MODULE_SIZE,
+                height: QR_MODULE_SIZE,
+                backgroundColor: dark ? '#000' : '#fff',
+              }}
+            />
           ))}
         </View>
       ))}
-      <Text style={{ fontSize: 10, color: '#9CA3AF', marginTop: 8, letterSpacing: 2 }}>{code}</Text>
+      <Text style={{ fontSize: 10, color: '#9CA3AF', marginTop: 6, letterSpacing: 2 }}>{code}</Text>
     </View>
   );
+}
+
+/**
+ * Per-ticket action state: null | 'loading' | 'done' | 'error'
+ * Keyed by ticket.id.
+ */
+function useTicketActions() {
+  const [emailState, setEmailState] = useState({});
+  const [pdfState, setPdfState]     = useState({});
+
+  async function handleResendEmail(ticket) {
+    setEmailState(prev => ({ ...prev, [ticket.id]: 'loading' }));
+    try {
+      await TicketService.resendEmail(ticket.qrCode);
+      setEmailState(prev => ({ ...prev, [ticket.id]: 'done' }));
+    } catch {
+      setEmailState(prev => ({ ...prev, [ticket.id]: 'error' }));
+    }
+  }
+
+  async function handleDownloadPdf(ticket) {
+    setPdfState(prev => ({ ...prev, [ticket.id]: 'loading' }));
+    try {
+      const { url } = await TicketService.getPdf(ticket.qrCode);
+      await Linking.openURL(url);
+      setPdfState(prev => ({ ...prev, [ticket.id]: 'done' }));
+    } catch {
+      setPdfState(prev => ({ ...prev, [ticket.id]: 'error' }));
+    }
+  }
+
+  return { emailState, pdfState, handleResendEmail, handleDownloadPdf };
 }
 
 export default function TicketScreen() {
@@ -29,6 +72,7 @@ export default function TicketScreen() {
   const viewingId = state.selectedTicket;
   const viewing = wallet.find(t => t.id === viewingId) || wallet[0];
   const event = viewing ? EVENTS.find(e => e.id === viewing.eventId) : null;
+  const { emailState, pdfState, handleResendEmail, handleDownloadPdf } = useTicketActions();
 
   return (
     <SafeAreaView style={s.root}>
@@ -71,8 +115,43 @@ export default function TicketScreen() {
 
                 {/* QR Code */}
                 <View style={{ alignItems: 'center', paddingVertical: 16 }}>
-                  <QRCode code={ticket.qrCode} color={ev?.color || '#000'} />
+                  <QRCode code={ticket.qrCode} />
                   <Text style={s.scanHint}>Show this QR at the door</Text>
+                </View>
+
+                {/* Ticket actions */}
+                <View style={s.actionsRow}>
+                  <TouchableOpacity
+                    style={[s.actionBtn, emailState[ticket.id] === 'error' && s.actionBtnError]}
+                    onPress={() => handleResendEmail(ticket)}
+                    disabled={emailState[ticket.id] === 'loading'}
+                  >
+                    {emailState[ticket.id] === 'loading' ? (
+                      <ActivityIndicator size="small" color="#818CF8" />
+                    ) : (
+                      <Text style={s.actionBtnText}>
+                        {emailState[ticket.id] === 'done'  ? '✅ Email Sent'  :
+                         emailState[ticket.id] === 'error' ? '⚠️ Retry Email' :
+                         '✉️ Resend Email'}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[s.actionBtn, pdfState[ticket.id] === 'error' && s.actionBtnError]}
+                    onPress={() => handleDownloadPdf(ticket)}
+                    disabled={pdfState[ticket.id] === 'loading'}
+                  >
+                    {pdfState[ticket.id] === 'loading' ? (
+                      <ActivityIndicator size="small" color="#818CF8" />
+                    ) : (
+                      <Text style={s.actionBtnText}>
+                        {pdfState[ticket.id] === 'done'  ? '✅ PDF Opened'   :
+                         pdfState[ticket.id] === 'error' ? '⚠️ Retry PDF'    :
+                         '📄 Download PDF'}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
                 </View>
 
                 <Text style={s.venue}>📍 {ev?.venue}</Text>
@@ -107,4 +186,8 @@ const s = StyleSheet.create({
   perf: { width: 14, height: 14, borderRadius: 7, backgroundColor: '#0F0F1A' },
   scanHint: { fontSize: 12, color: '#9CA3AF', marginTop: 8 },
   venue: { fontSize: 12, color: '#6B7280', textAlign: 'center', marginTop: 8 },
+  actionsRow: { flexDirection: 'row', gap: 8, marginTop: 4, marginBottom: 8 },
+  actionBtn: { flex: 1, borderRadius: 10, borderWidth: 1, borderColor: '#E5E7EB', paddingVertical: 10, alignItems: 'center', justifyContent: 'center', minHeight: 40 },
+  actionBtnError: { borderColor: '#F59E0B' },
+  actionBtnText: { fontSize: 12, fontWeight: '600', color: '#374151' },
 });
