@@ -12,6 +12,7 @@ import AccountScreen from '../screens/AccountScreen';
 import OrganiserDashboardScreen from '../screens/OrganiserDashboardScreen';
 
 // Stack-only screens
+import AttendeeListScreen from '../screens/AttendeeListScreen';
 import HomeScreen from '../screens/HomeScreen';
 import LoginScreen from '../screens/LoginScreen';
 import PricingScreen from '../screens/PricingScreen';
@@ -108,6 +109,11 @@ export default function TabNavigator() {
       <Stack.Screen name="StripeCheckout"         component={StripeCheckoutScreen}         options={{ title: 'Checkout', headerBackTitle: 'Back' }} />
       <Stack.Screen name="OAuthSettings"          component={OAuthSettingsScreen}          options={{ title: 'OAuth Settings' }} />
       <Stack.Screen name="SubscriptionManagement" component={SubscriptionManagementScreen} options={{ title: 'Manage Subscription' }} />
+      <Stack.Screen
+        name="AttendeeList"
+        component={AttendeeListScreen}
+        options={{ headerShown: false }}
+      />
     </Stack.Navigator>
   );
 }

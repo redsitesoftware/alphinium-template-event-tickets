@@ -22,7 +22,7 @@ import { WaitlistService } from '../services/WaitlistService';
 import OrganiserEventFormScreen from './OrganiserEventFormScreen';
 import { colors, spacing, radius } from '../theme';
 
-export default function OrganiserDashboardScreen() {
+export default function OrganiserDashboardScreen({ navigation }) {
   const { user, token } = useAuth();
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -276,7 +276,17 @@ export default function OrganiserDashboardScreen() {
                   </View>
 
                   <View style={s.cardFooter}>
-                    <Text style={s.editHint}>Tap to edit →</Text>
+                    <TouchableOpacity
+                      style={s.attendeesBtn}
+                      onPress={() => navigation?.navigate('AttendeeList', {
+                        eventId: id,
+                        eventName: attrs.name || 'Event',
+                      })}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={s.attendeesBtnText}>👥 View Attendees</Text>
+                    </TouchableOpacity>
+                    <Text style={s.editHint}>Tap card to edit →</Text>
                   </View>
                 </TouchableOpacity>
               );
@@ -474,7 +484,20 @@ const s = StyleSheet.create({
   cardFooter: {
     paddingHorizontal: spacing.md,
     paddingBottom: spacing.sm,
-    alignItems: 'flex-end',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  attendeesBtn: {
+    backgroundColor: colors.primaryLight,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 5,
+    borderRadius: radius.md,
+  },
+  attendeesBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.primary,
   },
   editHint: {
     fontSize: 12,
