@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useReducer } from 'react';
 
 export const EVENTS = [
-  { id: 'e1', name: 'Neon Nights Festival', emoji: '🎆', category: 'Festival', date: '2026-06-21', time: '6:00 PM', venue: 'Centennial Park, Sydney', capacity: 5000, sold: 3847, color: '#7C3AED', accent: '#A78BFA', tickets: [
+  { id: 'e1', name: 'Neon Nights Festival', emoji: '🎆', category: 'Festival', date: '2026-06-21', time: '6:00 PM', venue: 'Centennial Park, Sydney', capacity: 5000, sold: 3847, color: '#7C3AED', accent: '#A78BFA', hasSeatMap: true, tickets: [
     { type: 'GA', label: 'General Admission', price: 49, available: 800 },
     { type: 'VIP', label: 'VIP Lounge Access', price: 129, available: 120 },
     { type: 'VVIP', label: 'Artist Backstage Pass', price: 299, available: 15 },
@@ -11,7 +11,7 @@ export const EVENTS = [
     { type: 'PRO', label: 'Pro Pass (all workshops)', price: 599, available: 100 },
     { type: 'ENT', label: 'Enterprise Table (10 seats)', price: 2499, available: 12 },
   ]},
-  { id: 'e3', name: 'Comedy Night Live', emoji: '😂', category: 'Comedy', date: '2026-06-14', time: '8:00 PM', venue: 'The Enmore Theatre', capacity: 600, sold: 581, color: '#F59E0B', accent: '#FCD34D', tickets: [
+  { id: 'e3', name: 'Comedy Night Live', emoji: '😂', category: 'Comedy', date: '2026-06-14', time: '8:00 PM', venue: 'The Enmore Theatre', capacity: 600, sold: 581, color: '#F59E0B', accent: '#FCD34D', hasSeatMap: true, tickets: [
     { type: 'STD', label: 'Standard Seat', price: 35, available: 12 },
     { type: 'PREM', label: 'Premium Front Row', price: 65, available: 7 },
   ]},
@@ -19,16 +19,19 @@ export const EVENTS = [
     { type: 'GA', label: 'Lawn Pass', price: 42, available: 150 },
     { type: 'TABLE', label: 'Reserved Table (4 seats)', price: 199, available: 24 },
   ]},
-  { id: 'e5', name: 'AI & The Future', emoji: '🤖', category: 'Keynote', date: '2026-07-03', time: '2:00 PM', venue: 'Town Hall, Melbourne', capacity: 1200, sold: 988, color: '#DC2626', accent: '#F87171', tickets: [
+  { id: 'e5', name: 'AI & The Future', emoji: '🤖', category: 'Keynote', date: '2026-07-03', time: '2:00 PM', venue: 'Town Hall, Melbourne', capacity: 1200, sold: 988, color: '#DC2626', accent: '#F87171', hasSeatMap: true, tickets: [
     { type: 'STD', label: 'General Admission', price: 89, available: 200 },
     { type: 'STREAM', label: 'Live Stream Access', price: 19, available: 9999 },
   ]},
 ];
 
 const initialState = {
-  phase: 'home',   // home | event | checkout | ticket | scanner
+  phase: 'home',   // home | event | seatPicker | checkout | ticket | scanner
   selectedEvent: null,
   selectedTicket: null,
+  selectedSection: null,     // section ID chosen in SeatPickerScreen
+  reservationId: null,       // active reservation hold ID
+  reservationExpiry: null,   // Unix ms timestamp when hold expires
   qty: 1,
   wallet: [
     // Pre-populated demo ticket
@@ -41,11 +44,23 @@ const initialState = {
 function reducer(state, action) {
   switch (action.type) {
     case 'VIEW_EVENT':
-      return { ...state, phase: 'event', selectedEvent: action.eventId, selectedTicket: null, qty: 1 };
+      return { ...state, phase: 'event', selectedEvent: action.eventId, selectedTicket: null, selectedSection: null, reservationId: null, reservationExpiry: null, qty: 1 };
     case 'SELECT_TICKET':
       return { ...state, selectedTicket: action.ticketType };
     case 'SET_QTY':
       return { ...state, qty: action.qty };
+    case 'GO_SEAT_PICKER':
+      return { ...state, phase: 'seatPicker' };
+    case 'SELECT_SECTION':
+      return { ...state, selectedSection: action.sectionId };
+    case 'SET_RESERVATION':
+      return {
+        ...state,
+        reservationId: action.reservationId,
+        reservationExpiry: action.expiresAt,
+      };
+    case 'CLEAR_RESERVATION':
+      return { ...state, reservationId: null, reservationExpiry: null, selectedSection: null };
     case 'GO_CHECKOUT':
       return { ...state, phase: 'checkout' };
     case 'CONFIRM_PURCHASE': {
@@ -56,12 +71,20 @@ function reducer(state, action) {
         id: 'w' + Date.now(),
         eventId: state.selectedEvent,
         type: state.selectedTicket,
+        section: state.selectedSection,
         qty: state.qty,
         totalPaid: total,
         qrCode: 'QR-' + state.selectedEvent.toUpperCase() + '-' + state.selectedTicket + '-' + Math.floor(Math.random() * 9000 + 1000),
         purchasedAt: new Date().toISOString().split('T')[0],
       };
-      return { ...state, wallet: [newTicket, ...state.wallet], phase: 'ticket', selectedTicket: newTicket.id };
+      return {
+        ...state,
+        wallet: [newTicket, ...state.wallet],
+        phase: 'ticket',
+        selectedTicket: newTicket.id,
+        reservationId: null,
+        reservationExpiry: null,
+      };
     }
     case 'VIEW_TICKET':
       return { ...state, phase: 'ticket', selectedTicket: action.ticketId };
@@ -70,9 +93,11 @@ function reducer(state, action) {
     case 'SIMULATE_SCAN':
       return { ...state, scanned: state.wallet[0] };
     case 'BACK':
-      return { ...state, phase: state.phase === 'checkout' ? 'event' : 'home', scanned: null };
+      if (state.phase === 'checkout') return { ...state, phase: 'seatPicker' };
+      if (state.phase === 'seatPicker') return { ...state, phase: 'event', selectedSection: null, reservationId: null, reservationExpiry: null };
+      return { ...state, phase: 'home', scanned: null };
     case 'GO_HOME':
-      return { ...state, phase: 'home', selectedEvent: null, selectedTicket: null, scanned: null };
+      return { ...state, phase: 'home', selectedEvent: null, selectedTicket: null, selectedSection: null, reservationId: null, reservationExpiry: null, scanned: null };
     default:
       return state;
   }
