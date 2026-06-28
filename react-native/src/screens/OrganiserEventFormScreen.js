@@ -23,10 +23,12 @@ import {
   Platform,
 } from 'react-native';
 import { OrganiserService } from '../services/OrganiserService';
+import OrganiserTicketTypesScreen from './OrganiserTicketTypesScreen';
 import { colors, spacing, radius } from '../theme';
 
 export default function OrganiserEventFormScreen({ event, token, onSaved, onDeleted, onBack }) {
   const isEditing = Boolean(event?.id);
+  const [managingTicketTypes, setManagingTicketTypes] = useState(false);
 
   const [name, setName] = useState(event?.name ?? '');
   const [description, setDescription] = useState(event?.description ?? '');
@@ -88,6 +90,17 @@ export default function OrganiserEventFormScreen({ event, token, onSaved, onDele
   }
 
   const busy = saving || deleting;
+
+  // Navigate to ticket types management sub-screen
+  if (managingTicketTypes) {
+    return (
+      <OrganiserTicketTypesScreen
+        event={event}
+        token={token}
+        onBack={() => setManagingTicketTypes(false)}
+      />
+    );
+  }
 
   return (
     <SafeAreaView style={s.root}>
@@ -210,6 +223,18 @@ export default function OrganiserEventFormScreen({ event, token, onSaved, onDele
               )}
             </TouchableOpacity>
           )}
+
+          {/* Ticket types management — edit mode only */}
+          {isEditing && (
+            <TouchableOpacity
+              style={[s.ticketTypesBtn, busy && s.saveBtnDisabled]}
+              onPress={() => setManagingTicketTypes(true)}
+              disabled={busy}
+              activeOpacity={0.8}
+            >
+              <Text style={s.ticketTypesBtnText}>🎫 Manage Ticket Tiers</Text>
+            </TouchableOpacity>
+          )}
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -317,6 +342,18 @@ const s = StyleSheet.create({
   },
   deleteBtnText: {
     color: colors.error,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  ticketTypesBtn: {
+    borderWidth: 1,
+    borderColor: colors.primary,
+    borderRadius: radius.round,
+    paddingVertical: spacing.md,
+    alignItems: 'center',
+  },
+  ticketTypesBtnText: {
+    color: colors.primaryLight,
     fontSize: 16,
     fontWeight: '600',
   },
