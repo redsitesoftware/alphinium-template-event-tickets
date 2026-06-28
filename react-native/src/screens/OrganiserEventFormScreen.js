@@ -26,6 +26,12 @@ import { OrganiserService } from '../services/OrganiserService';
 import OrganiserTicketTypesScreen from './OrganiserTicketTypesScreen';
 import { colors, spacing, radius } from '../theme';
 
+const REFUND_POLICY_OPTIONS = [
+  { value: 'no_refunds', label: 'No Refunds' },
+  { value: '48h', label: 'Within 48h' },
+  { value: '7d', label: 'Within 7 days' },
+];
+
 export default function OrganiserEventFormScreen({ event, token, onSaved, onDeleted, onBack }) {
   const isEditing = Boolean(event?.id);
   const [managingTicketTypes, setManagingTicketTypes] = useState(false);
@@ -35,6 +41,7 @@ export default function OrganiserEventFormScreen({ event, token, onSaved, onDele
   const [date, setDate] = useState(event?.date ?? '');
   const [venue, setVenue] = useState(event?.venue ?? '');
   const [bannerImageUrl, setBannerImageUrl] = useState(event?.bannerImageUrl ?? '');
+  const [refundPolicy, setRefundPolicy] = useState(event?.refundPolicy ?? 'no_refunds');
 
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -48,7 +55,7 @@ export default function OrganiserEventFormScreen({ event, token, onSaved, onDele
     setSaving(true);
     setError(null);
     try {
-      const data = { name: name.trim(), description, date, venue, bannerImageUrl };
+      const data = { name: name.trim(), description, date, venue, bannerImageUrl, refundPolicy };
       if (isEditing) {
         await OrganiserService.updateEvent(event.id, data, token);
       } else {
@@ -190,6 +197,32 @@ export default function OrganiserEventFormScreen({ event, token, onSaved, onDele
               keyboardType="url"
               returnKeyType="done"
             />
+          </Field>
+
+          <Field label="Refund Policy">
+            <View style={s.policyRow}>
+              {REFUND_POLICY_OPTIONS.map(opt => (
+                <TouchableOpacity
+                  key={opt.value}
+                  style={[
+                    s.policyOption,
+                    refundPolicy === opt.value && s.policyOptionSelected,
+                    busy && s.disabled,
+                  ]}
+                  onPress={() => !busy && setRefundPolicy(opt.value)}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={[
+                      s.policyOptionText,
+                      refundPolicy === opt.value && s.policyOptionTextSelected,
+                    ]}
+                  >
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
           </Field>
 
           {/* Save button */}
@@ -359,5 +392,31 @@ const s = StyleSheet.create({
   },
   disabled: {
     opacity: 0.4,
+  },
+  policyRow: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+  },
+  policyOption: {
+    flex: 1,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    borderRadius: radius.md,
+    paddingVertical: spacing.sm + 2,
+    alignItems: 'center',
+  },
+  policyOptionSelected: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  policyOptionText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textSub,
+    textAlign: 'center',
+  },
+  policyOptionTextSelected: {
+    color: colors.white,
   },
 });

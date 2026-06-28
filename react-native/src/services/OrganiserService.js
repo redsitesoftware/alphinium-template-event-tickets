@@ -21,6 +21,24 @@ async function handleResponse(response) {
   return response.json();
 }
 
+// ---------------------------------------------------------------------------
+// Mock fallback (used when STRAPI_URL is not configured)
+// ---------------------------------------------------------------------------
+
+function mockGetEvents() {
+  return [
+    {
+      id: 1,
+      name: 'Demo Event',
+      description: 'A sample event for preview mode.',
+      date: '2025-12-01',
+      venue: 'Demo Venue',
+      bannerImageUrl: '',
+      refundPolicy: 'no_refunds',
+    },
+  ];
+}
+
 export const OrganiserService = {
   /**
    * List events owned by the authenticated organiser.
@@ -28,6 +46,8 @@ export const OrganiserService = {
    * @returns {Promise<Array>}
    */
   async getEvents(token) {
+    if (!STRAPI_URL) return mockGetEvents();
+
     const response = await fetch(`${STRAPI_URL}/api/organiser/events`, {
       method: 'GET',
       headers: authHeaders(token),
@@ -37,7 +57,7 @@ export const OrganiserService = {
 
   /**
    * Create a new event.
-   * @param {{ name, description, date, venue, bannerImageUrl }} data
+   * @param {{ name, description, date, venue, bannerImageUrl, refundPolicy }} data
    * @param {string} token
    * @returns {Promise<object>}
    */
@@ -53,7 +73,7 @@ export const OrganiserService = {
   /**
    * Update an existing event.
    * @param {string|number} id
-   * @param {{ name, description, date, venue, bannerImageUrl }} data
+   * @param {{ name, description, date, venue, bannerImageUrl, refundPolicy }} data
    * @param {string} token
    * @returns {Promise<object>}
    */
