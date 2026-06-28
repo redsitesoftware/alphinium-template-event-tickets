@@ -18,7 +18,6 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '@alphinium/auth';
 import { OrganiserService } from '../services/OrganiserService';
-import { WaitlistService } from '../services/WaitlistService';
 import OrganiserEventFormScreen from './OrganiserEventFormScreen';
 import { colors, spacing, radius } from '../theme';
 
@@ -31,8 +30,6 @@ export default function OrganiserDashboardScreen() {
   const [editingEvent, setEditingEvent] = useState(undefined); // undefined = dashboard, null = create, object = edit
   // Map of eventId → { checkedIn: number, total: number }
   const [checkInCounts, setCheckInCounts] = useState({});
-  // Map of eventId → number (waitlist total)
-  const [waitlistCounts, setWaitlistCounts] = useState({});
 
   const fetchCheckInCounts = useCallback(async (eventList) => {
     if (!eventList || eventList.length === 0) return;
@@ -61,24 +58,6 @@ export default function OrganiserDashboardScreen() {
     setCheckInCounts(counts);
   }, [token]);
 
-  const fetchWaitlistCounts = useCallback(async (eventList) => {
-    if (!eventList || eventList.length === 0) return;
-    const results = await Promise.allSettled(
-      eventList.map(async (evt) => {
-        const id = evt.id ?? evt._id;
-        const res = await WaitlistService.getWaitlistLength(id);
-        return { id, total: res?.total ?? 0 };
-      }),
-    );
-    const counts = {};
-    results.forEach((r) => {
-      if (r.status === 'fulfilled') {
-        counts[r.value.id] = r.value.total;
-      }
-    });
-    setWaitlistCounts(counts);
-  }, []);
-
   const fetchEvents = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     setError(null);
@@ -88,31 +67,29 @@ export default function OrganiserDashboardScreen() {
       const list = Array.isArray(data) ? data : (data?.data ?? []);
       setEvents(list);
       fetchCheckInCounts(list);
-      fetchWaitlistCounts(list);
     } catch (err) {
       setError(err.message || 'Failed to load events');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [token, fetchCheckInCounts, fetchWaitlistCounts]);
+  }, [token, fetchCheckInCounts]);
 
   // Load on first mount
   React.useEffect(() => {
     fetchEvents();
   }, [fetchEvents]);
 
-  // Auto-refresh check-in and waitlist counts every 30 seconds while focused
+  // Auto-refresh check-in counts every 30 seconds while focused
   useFocusEffect(
     useCallback(() => {
       const interval = setInterval(() => {
         if (events.length > 0) {
           fetchCheckInCounts(events);
-          fetchWaitlistCounts(events);
         }
       }, 30_000);
       return () => clearInterval(interval);
-    }, [events, fetchCheckInCounts, fetchWaitlistCounts]),
+    }, [events, fetchCheckInCounts]),
   );
 
   const onRefresh = useCallback(() => {
@@ -256,19 +233,6 @@ export default function OrganiserDashboardScreen() {
                           <Text style={s.checkInIcon}>✅</Text>
                           <Text style={s.checkInText}>
                             {ci.checkedIn} / {ci.total} checked in
-                          </Text>
-                        </View>
-                      ) : null;
-                    })()}
-
-                    {/* Waitlist count — only shown when total > 0 */}
-                    {(() => {
-                      const wl = waitlistCounts[id];
-                      return wl != null && wl > 0 ? (
-                        <View style={s.waitlistRow}>
-                          <Text style={s.waitlistIcon}>🕐</Text>
-                          <Text style={s.waitlistText}>
-                            {wl} on waitlist
                           </Text>
                         </View>
                       ) : null;
@@ -456,20 +420,6 @@ const s = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
     color: colors.success,
-  },
-  waitlistRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginTop: 4,
-  },
-  waitlistIcon: {
-    fontSize: 11,
-  },
-  waitlistText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: colors.textSub,
   },
   cardFooter: {
     paddingHorizontal: spacing.md,
