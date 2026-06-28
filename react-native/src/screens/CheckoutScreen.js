@@ -1,6 +1,15 @@
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView, TextInput, ScrollView } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView, TextInput, ScrollView, Alert } from 'react-native';
 import { useStore, EVENTS } from '../store/ticketStore';
+import { SeatMapService } from '../services/SeatMapService';
+
+function formatCountdown(msRemaining) {
+  if (msRemaining <= 0) return '0:00';
+  const totalSec = Math.ceil(msRemaining / 1000);
+  const min = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  return `${min}:${sec.toString().padStart(2, '0')}`;
+}
 
 export default function CheckoutScreen() {
   const { state, dispatch } = useStore();
@@ -11,6 +20,35 @@ export default function CheckoutScreen() {
   const [email, setEmail] = useState('dan@example.com');
   const [card, setCard] = useState('•••• •••• •••• 4242');
   const [processing, setProcessing] = useState(false);
+
+  // Countdown for active seat reservation hold
+  const [msRemaining, setMsRemaining] = useState(null);
+  const timerRef = useRef(null);
+
+  useEffect(() => {
+    if (state.reservationExpiry) {
+      const tick = () => {
+        const remaining = state.reservationExpiry - Date.now();
+        if (remaining <= 0) {
+          setMsRemaining(0);
+          clearInterval(timerRef.current);
+          Alert.alert(
+            'Hold Expired',
+            'Your seat reservation has expired. Please choose a section again.',
+            [{ text: 'OK', onPress: () => dispatch({ type: 'CLEAR_RESERVATION' }) }],
+          );
+        } else {
+          setMsRemaining(remaining);
+        }
+      };
+      tick();
+      timerRef.current = setInterval(tick, 1000);
+    } else {
+      setMsRemaining(null);
+      clearInterval(timerRef.current);
+    }
+    return () => clearInterval(timerRef.current);
+  }, [state.reservationExpiry]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const pay = () => {
     setProcessing(true);
@@ -26,6 +64,15 @@ export default function CheckoutScreen() {
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 120 }}>
+        {/* Reservation hold banner */}
+        {msRemaining != null && (
+          <View style={[s.holdBanner, msRemaining < 60000 && s.holdBannerUrgent]}>
+            <Text style={[s.holdBannerText, msRemaining < 60000 && { color: '#EF4444' }]}>
+              ⏱ Seat held for {formatCountdown(msRemaining)} — complete purchase before it expires
+            </Text>
+          </View>
+        )}
+
         {/* Order summary */}
         <View style={[s.summaryCard, { borderColor: event?.accent + '40' }]}>
           <Text style={s.summaryTitle}>Order Summary</Text>
@@ -34,6 +81,9 @@ export default function CheckoutScreen() {
             <View style={{ flex: 1 }}>
               <Text style={s.summaryEvent}>{event?.name}</Text>
               <Text style={s.summaryMeta}>{state.qty}× {ticket?.label}</Text>
+              {state.selectedSection && (
+                <Text style={s.summarySection}>📍 Section: {state.selectedSection}</Text>
+              )}
               <Text style={s.summaryDate}>{event?.date} · {event?.time}</Text>
             </View>
             <Text style={[s.summaryTotal, { color: event?.accent }]}>${total.toFixed(2)}</Text>
@@ -101,7 +151,18 @@ const s = StyleSheet.create({
   summaryEmoji: { fontSize: 28 },
   summaryEvent: { fontSize: 15, fontWeight: '700', color: '#fff' },
   summaryMeta: { fontSize: 13, color: '#9CA3AF', marginTop: 4 },
+  summarySection: { fontSize: 12, color: '#818CF8', marginTop: 2, fontWeight: '600' },
   summaryDate: { fontSize: 12, color: '#6B7280', marginTop: 2 },
+  holdBanner: {
+    backgroundColor: '#1E1E2E',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#374151',
+  },
+  holdBannerUrgent: { borderColor: '#EF4444', backgroundColor: '#EF444418' },
+  holdBannerText: { color: '#9CA3AF', fontSize: 13, fontWeight: '600', textAlign: 'center' },
   summaryTotal: { fontSize: 18, fontWeight: '900' },
   divider: { height: 1, backgroundColor: '#374151', marginVertical: 12 },
   summaryFooter: { flexDirection: 'row', justifyContent: 'space-between' },

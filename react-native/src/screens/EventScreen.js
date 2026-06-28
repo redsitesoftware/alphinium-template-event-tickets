@@ -203,14 +203,18 @@ export default function EventScreen() {
         const attrs = t?.attributes ?? t ?? {};
         const price = attrs.price ?? 0;
         const total = price * state.qty;
+        const hasSeatMap = event.hasSeatMap ?? false;
         return (
           <View style={s.stickyBar}>
             <View>
               <Text style={s.totalLabel}>{state.qty}× {state.selectedTicket}</Text>
               <Text style={[s.totalPrice, { color: accent }]}>${total.toFixed(2)}</Text>
             </View>
-            <TouchableOpacity style={[s.buyBtn, { backgroundColor: accent }]} onPress={() => dispatch({ type: 'GO_CHECKOUT' })}>
-              <Text style={s.buyBtnText}>Buy Now →</Text>
+            <TouchableOpacity
+              style={[s.buyBtn, { backgroundColor: accent }]}
+              onPress={() => dispatch({ type: hasSeatMap ? 'GO_SEAT_PICKER' : 'GO_CHECKOUT' })}
+            >
+              <Text style={s.buyBtnText}>{hasSeatMap ? 'Choose Seat →' : 'Buy Now →'}</Text>
             </TouchableOpacity>
           </View>
         );
