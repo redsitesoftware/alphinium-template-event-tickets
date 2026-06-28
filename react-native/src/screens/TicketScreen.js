@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, SafeAreaView, Linking, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, SafeAreaView, Linking, ActivityIndicator, Alert } from 'react-native';
 import { useStore, EVENTS } from '../store/ticketStore';
 import { generateQRMatrix } from '../utils/qrGenerator';
 import { TicketService } from '../services/TicketService';
@@ -39,8 +39,11 @@ function QRCode({ code }) {
  * Keyed by ticket.id.
  */
 function useTicketActions() {
-  const [emailState, setEmailState] = useState({});
-  const [pdfState, setPdfState]     = useState({});
+  const [emailState, setEmailState]       = useState({});
+  const [pdfState, setPdfState]           = useState({});
+  const [refundState, setRefundState]     = useState({}); // { [id]: { status, loading, result } }
+  const [transferState, setTransferState] = useState({}); // { [id]: 'loading' | 'done' | 'error' }
+  const [transferredQr, setTransferredQr] = useState({}); // { [id]: newUuid }
 
   async function handleResendEmail(ticket) {
     setEmailState(prev => ({ ...prev, [ticket.id]: 'loading' }));
@@ -63,7 +66,77 @@ function useTicketActions() {
     }
   }
 
-  return { emailState, pdfState, handleResendEmail, handleDownloadPdf };
+  function handleRequestRefund(ticket) {
+    Alert.alert(
+      'Request Refund',
+      'Are you sure you want to request a refund for this ticket? This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Request Refund',
+          style: 'destructive',
+          onPress: async () => {
+            setRefundState(prev => ({ ...prev, [ticket.id]: { loading: true } }));
+            try {
+              const result = await TicketService.requestRefund(ticket.qrCode);
+              setRefundState(prev => ({ ...prev, [ticket.id]: { loading: false, result } }));
+              const statusMsg =
+                result.status === 'approved' ? 'Your refund has been approved.' :
+                result.status === 'rejected' ? `Refund rejected${result.reason ? `: ${result.reason}` : '.'}` :
+                'Your refund request is pending review.';
+              Alert.alert('Refund Request', statusMsg);
+            } catch (err) {
+              setRefundState(prev => ({ ...prev, [ticket.id]: { loading: false, error: true } }));
+              Alert.alert('Error', err.message || 'Could not submit refund request. Please try again.');
+            }
+          },
+        },
+      ],
+    );
+  }
+
+  function handleTransferTicket(ticket) {
+    Alert.prompt(
+      'Transfer Ticket',
+      'Enter the email address of the new ticket holder.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Transfer',
+          onPress: async (email) => {
+            const trimmed = (email ?? '').trim();
+            if (!trimmed) {
+              Alert.alert('Email required', 'Please enter a valid email address.');
+              return;
+            }
+            setTransferState(prev => ({ ...prev, [ticket.id]: 'loading' }));
+            try {
+              const result = await TicketService.transferTicket(ticket.qrCode, trimmed);
+              setTransferState(prev => ({ ...prev, [ticket.id]: 'done' }));
+              setTransferredQr(prev => ({ ...prev, [ticket.id]: result.newUuid }));
+              Alert.alert(
+                'Ticket Transferred',
+                result.message || `Ticket transferred to ${trimmed}. A new QR code has been issued.`,
+              );
+            } catch (err) {
+              setTransferState(prev => ({ ...prev, [ticket.id]: 'error' }));
+              Alert.alert('Error', err.message || 'Could not transfer ticket. Please try again.');
+            }
+          },
+        },
+      ],
+      'plain-text',
+      '',
+      'email-address',
+    );
+  }
+
+  return {
+    emailState, pdfState,
+    refundState, transferState, transferredQr,
+    handleResendEmail, handleDownloadPdf,
+    handleRequestRefund, handleTransferTicket,
+  };
 }
 
 export default function TicketScreen() {
@@ -72,7 +145,8 @@ export default function TicketScreen() {
   const viewingId = state.selectedTicket;
   const viewing = wallet.find(t => t.id === viewingId) || wallet[0];
   const event = viewing ? EVENTS.find(e => e.id === viewing.eventId) : null;
-  const { emailState, pdfState, handleResendEmail, handleDownloadPdf } = useTicketActions();
+  const { emailState, pdfState, refundState, transferState, transferredQr,
+          handleResendEmail, handleDownloadPdf, handleRequestRefund, handleTransferTicket } = useTicketActions();
 
   return (
     <SafeAreaView style={s.root}>
@@ -115,11 +189,15 @@ export default function TicketScreen() {
 
                 {/* QR Code */}
                 <View style={{ alignItems: 'center', paddingVertical: 16 }}>
-                  <QRCode code={ticket.qrCode} />
-                  <Text style={s.scanHint}>Show this QR at the door</Text>
+                  <QRCode code={transferredQr[ticket.id] ?? ticket.qrCode} />
+                  {transferredQr[ticket.id] ? (
+                    <Text style={[s.scanHint, { color: '#7C3AED' }]}>🔄 New QR — ticket transferred</Text>
+                  ) : (
+                    <Text style={s.scanHint}>Show this QR at the door</Text>
+                  )}
                 </View>
 
-                {/* Ticket actions */}
+                {/* Ticket actions — email & PDF */}
                 <View style={s.actionsRow}>
                   <TouchableOpacity
                     style={[s.actionBtn, emailState[ticket.id] === 'error' && s.actionBtnError]}
@@ -153,6 +231,57 @@ export default function TicketScreen() {
                     )}
                   </TouchableOpacity>
                 </View>
+
+                {/* Refund & Transfer — hidden for scanned/used tickets */}
+                {ticket.status !== 'scanned' && (
+                  <View style={s.actionsRow}>
+                    {/* Refund button */}
+                    {refundState[ticket.id]?.result ? (
+                      <View style={[s.actionBtn, s.actionBtnInfo]}>
+                        <Text style={[s.actionBtnText, { color: '#6B7280' }]}>
+                          {refundState[ticket.id].result.status === 'approved' ? '✅ Refund Approved' :
+                           refundState[ticket.id].result.status === 'rejected' ? '❌ Refund Rejected' :
+                           '⏳ Refund Pending'}
+                        </Text>
+                      </View>
+                    ) : (
+                      <TouchableOpacity
+                        style={[s.actionBtn, s.actionBtnRefund,
+                          refundState[ticket.id]?.loading && { opacity: 0.6 }]}
+                        onPress={() => handleRequestRefund(ticket)}
+                        disabled={!!refundState[ticket.id]?.loading}
+                      >
+                        {refundState[ticket.id]?.loading ? (
+                          <ActivityIndicator size="small" color="#EF4444" />
+                        ) : (
+                          <Text style={[s.actionBtnText, { color: '#EF4444' }]}>💸 Request Refund</Text>
+                        )}
+                      </TouchableOpacity>
+                    )}
+
+                    {/* Transfer button */}
+                    {transferState[ticket.id] === 'done' ? (
+                      <View style={[s.actionBtn, s.actionBtnInfo]}>
+                        <Text style={[s.actionBtnText, { color: '#6B7280' }]}>✅ Transferred</Text>
+                      </View>
+                    ) : (
+                      <TouchableOpacity
+                        style={[s.actionBtn, s.actionBtnTransfer,
+                          transferState[ticket.id] === 'loading' && { opacity: 0.6 }]}
+                        onPress={() => handleTransferTicket(ticket)}
+                        disabled={transferState[ticket.id] === 'loading'}
+                      >
+                        {transferState[ticket.id] === 'loading' ? (
+                          <ActivityIndicator size="small" color="#7C3AED" />
+                        ) : (
+                          <Text style={[s.actionBtnText, { color: '#7C3AED' }]}>
+                            {transferState[ticket.id] === 'error' ? '⚠️ Retry Transfer' : '🔄 Transfer Ticket'}
+                          </Text>
+                        )}
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                )}
 
                 <Text style={s.venue}>📍 {ev?.venue}</Text>
               </View>
@@ -189,5 +318,8 @@ const s = StyleSheet.create({
   actionsRow: { flexDirection: 'row', gap: 8, marginTop: 4, marginBottom: 8 },
   actionBtn: { flex: 1, borderRadius: 10, borderWidth: 1, borderColor: '#E5E7EB', paddingVertical: 10, alignItems: 'center', justifyContent: 'center', minHeight: 40 },
   actionBtnError: { borderColor: '#F59E0B' },
+  actionBtnRefund: { borderColor: '#FCA5A5' },
+  actionBtnTransfer: { borderColor: '#C4B5FD' },
+  actionBtnInfo: { borderColor: '#E5E7EB', backgroundColor: '#F9FAFB' },
   actionBtnText: { fontSize: 12, fontWeight: '600', color: '#374151' },
 });
