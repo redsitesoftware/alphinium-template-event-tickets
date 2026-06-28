@@ -39,11 +39,27 @@ function mockGetEvents() {
   ];
 }
 
-function mockGetAttendees(_id, params = {}) {
-  if (params.checkedIn === true || params.checkedIn === 'true') {
-    return { data: [], meta: { total: 3, checkedIn: 3 } };
+function mockGetAttendees(_eventId, filters = {}) {
+  const all = [
+    { name: 'Alice Chen',   email: 'alice@example.com',   ticketType: 'General Admission', checkedIn: true,  uuid: 'QR-MOCK-001' },
+    { name: 'Bob Nguyen',   email: 'bob@example.com',     ticketType: 'VIP',               checkedIn: false, uuid: 'QR-MOCK-002' },
+    { name: 'Carol Smith',  email: 'carol@example.com',   ticketType: 'General Admission', checkedIn: true,  uuid: 'QR-MOCK-003' },
+    { name: 'David Park',   email: 'david@example.com',   ticketType: 'VIP',               checkedIn: true,  uuid: 'QR-MOCK-004' },
+    { name: 'Emma Johnson', email: 'emma@example.com',    ticketType: 'General Admission', checkedIn: false, uuid: 'QR-MOCK-005' },
+  ];
+  let result = all;
+  if (filters.ticketType) {
+    result = result.filter(a => a.ticketType === filters.ticketType);
   }
-  return { data: [], meta: { total: 12, checkedIn: 3 } };
+  if (filters.checkedIn != null) {
+    const wantCheckedIn = filters.checkedIn === true || filters.checkedIn === 'true';
+    result = result.filter(a => a.checkedIn === wantCheckedIn);
+  }
+  return { attendees: result, total: result.length };
+}
+
+function mockMessageAttendees(_eventId, _subject, _body) {
+  return { success: true, sent: 5 };
 }
 
 export const OrganiserService = {
@@ -111,21 +127,47 @@ export const OrganiserService = {
   },
 
   /**
-   * Fetch attendee list (or checked-in subset) for an event.
-   * @param {string|number} id
-   * @param {{ checkedIn?: boolean }} params  Pass { checkedIn: true } for check-in count only
+   * Fetch the attendee list for an event, with optional filters.
+   *
+   * @param {string|number} eventId
+   * @param {{ ticketType?: string, checkedIn?: boolean }} [filters]
    * @param {string} token
-   * @returns {Promise<{ data: Array, meta: { total: number, checkedIn: number } }>}
+   * @returns {Promise<{ attendees: Array<{ name, email, ticketType, checkedIn, uuid }>, total: number }>}
    */
-  async getAttendees(id, params = {}, token) {
-    if (!STRAPI_URL) return mockGetAttendees(id, params);
+  async getAttendees(eventId, filters = {}, token) {
+    if (!STRAPI_URL) return mockGetAttendees(eventId, filters);
 
-    const query = params.checkedIn != null
-      ? `?checkedIn=${encodeURIComponent(params.checkedIn)}`
-      : '';
+    const params = new URLSearchParams();
+    if (filters.ticketType != null) params.set('ticketType', filters.ticketType);
+    if (filters.checkedIn  != null) params.set('checkedIn',  String(filters.checkedIn));
+    const qs = params.toString() ? `?${params.toString()}` : '';
+
     const response = await fetch(
-      `${STRAPI_URL}/api/organiser/events/${encodeURIComponent(id)}/attendees${query}`,
+      `${STRAPI_URL}/api/organiser/events/${encodeURIComponent(eventId)}/attendees${qs}`,
       { headers: authHeaders(token) },
+    );
+    return handleResponse(response);
+  },
+
+  /**
+   * Send a message to all attendees of an event.
+   *
+   * @param {string|number} eventId
+   * @param {string} subject
+   * @param {string} body
+   * @param {string} token
+   * @returns {Promise<{ success: boolean, sent: number }>}
+   */
+  async messageAttendees(eventId, subject, body, token) {
+    if (!STRAPI_URL) return mockMessageAttendees(eventId, subject, body);
+
+    const response = await fetch(
+      `${STRAPI_URL}/api/organiser/events/${encodeURIComponent(eventId)}/message`,
+      {
+        method: 'POST',
+        headers: authHeaders(token),
+        body: JSON.stringify({ subject, body }),
+      },
     );
     return handleResponse(response);
   },
