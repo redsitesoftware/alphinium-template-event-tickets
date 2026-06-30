@@ -26,7 +26,7 @@ export const EVENTS = [
 ];
 
 const initialState = {
-  phase: 'home',   // home | event | seatPicker | checkout | ticket | scanner
+  phase: 'login',   // login | home | event | seatPicker | checkout | ticket | scanner
   selectedEvent: null,
   selectedTicket: null,
   selectedSection: null,     // section ID chosen in SeatPickerScreen
@@ -44,6 +44,8 @@ const initialState = {
 
 function reducer(state, action) {
   switch (action.type) {
+    case 'COMPLETE_LOGIN':
+      return { ...state, phase: 'home' };
     case 'VIEW_EVENT':
       return { ...state, phase: 'event', selectedEvent: action.eventId, selectedTicket: null, selectedSection: null, reservationId: null, reservationExpiry: null, paymentIntentId: null, qty: 1 };
     case 'SELECT_TICKET':

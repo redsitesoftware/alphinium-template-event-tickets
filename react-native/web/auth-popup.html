@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Sign in — EventPass</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f0f1a;color:#fff;display:flex;align-items:center;justify-content:center;min-height:100vh}
+    .card{background:#1a1a2e;border-radius:20px;padding:36px 28px;max-width:360px;width:92%;text-align:center}
+    h1{font-size:26px;font-weight:700;margin-bottom:6px}
+    p{color:#a0a0c0;font-size:14px;margin-bottom:28px}
+    button{width:100%;padding:15px;border:none;border-radius:12px;font-size:16px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:12px}
+    .fb{background:#1877F2;color:#fff}
+    .google{background:#fff;color:#3c4043;border:1px solid #dadce0}
+    .status{color:#a0a0c0;font-size:13px;margin-top:18px;min-height:22px}
+    .spinner{display:none;margin:16px auto;width:28px;height:28px;border:3px solid #2e2e4a;border-top-color:#7C3AED;border-radius:50%;animation:spin .7s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+  </style>
+  <script>
+    var STRAPI='https://auth.alphinium.io';
+    window.fbAsyncInit=function(){FB.init({appId:'1278485494007756',cookie:true,xfbml:true,version:'v25.0'})};
+    (function(d,s,id){var js,fjs=d.getElementsByTagName(s)[0];if(d.getElementById(id))return;js=d.createElement(s);js.id=id;js.src='https://connect.facebook.net/en_US/sdk.js';fjs.parentNode.insertBefore(js,fjs)}(document,'script','facebook-jssdk'));
+    function setStatus(msg){document.getElementById('status').textContent=msg}
+    function setSpinner(on){document.getElementById('spinner').style.display=on?'block':'none'}
+    function sendResult(data){
+      if(window.opener){window.opener.postMessage({type:'alphinium-auth',jwt:data.jwt,user:data.user},'*');window.close();}
+      else{window.location.href=window.location.origin+'?alphinium_jwt='+encodeURIComponent(data.jwt);}
+    }
+    function loginFacebook(){
+      setSpinner(true);setStatus('');
+      FB.login(function(r){
+        if(r.authResponse&&r.authResponse.accessToken){
+          setStatus('Signing you in…');
+          fetch(STRAPI+'/api/auth/facebook/callback?access_token='+r.authResponse.accessToken)
+            .then(function(res){return res.json()})
+            .then(function(data){
+              if(data.jwt){sendResult(data);}
+              else{setSpinner(false);setStatus((data.error&&data.error.message)||'Login failed.');}
+            })
+            .catch(function(){setSpinner(false);setStatus('Network error. Try again.')});
+        } else {setSpinner(false);if(r.status!=='unknown')setStatus('Login cancelled.');}
+      },{scope:'email,public_profile'});
+    }
+    function loginGoogle(){
+      setSpinner(true);setStatus('Logging in with Google…');
+      var redirect=encodeURIComponent(window.location.href+'?provider=google');
+      window.location.href=STRAPI+'/api/connect/google?redirect='+redirect;
+    }
+    window.onload=function(){
+      var params=new URLSearchParams(window.location.search);
+      var provider=params.get('provider');
+      var access_token=params.get('access_token');
+      if(provider==='google'&&access_token){
+        setSpinner(true);setStatus('Completing sign in…');
+        fetch(STRAPI+'/api/auth/google/callback?access_token='+access_token)
+          .then(function(res){return res.json()})
+          .then(function(data){
+            if(data.jwt){sendResult(data);}
+            else{setSpinner(false);setStatus((data.error&&data.error.message)||'Login failed.');}
+          })
+          .catch(function(){setSpinner(false);setStatus('Network error. Try again.')});
+      }
+    }
+  </script>
+</head><body>
+  <div class="card">
+    <h1>🎫 EventPass</h1>
+    <p>Sign in to continue</p>
+    <div id="spinner" class="spinner"></div>
+    <button class="fb" onclick="loginFacebook()"><span>📘</span> Continue with Facebook</button>
+    <button class="google" onclick="loginGoogle()"><span style="font-size:20px">🔵</span> Continue with Google</button>
+    <p id="status" class="status"></p>
+  </div>
+</body></html>
